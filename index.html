@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>טריוויה י"א ניסן - יום הולדת הרבי</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer></script>
     <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@300;400;600;700;800&display=swap" rel="stylesheet">
     <style>
         body {
@@ -187,6 +188,7 @@
             <div class="bg-blue-50 p-4 rounded-xl border border-blue-200 mb-8 max-w-sm mx-auto">
                 <p class="text-blue-900 font-bold text-lg text-center">📩 אימייל עם תוצאות החידון נשלח אליך ברגע זה!</p>
             </div>
+            <div id="turnstile-box" class="flex justify-center mb-4"></div>
             <p id="webhook-status" class="text-lg font-bold text-gray-600 mb-6 hidden text-center">שומר תוצאה במערכת...</p>
             <button onclick="restartGame()" class="bg-gray-800 hover:bg-black text-white font-bold py-3 px-10 rounded-full text-xl transition-all shadow-xl">נסה שוב</button>
         </div>
@@ -386,9 +388,45 @@
             else scoreMessage.innerText = "תודה על ההשתתפות! החידון נועד כדי שנלמד ונוסיף בידע.";
         }
 
+        const TURNSTILE_SITEKEY = "0x4AAAAAAFcGaeRLRnEtfVHO";
+        let turnstileWidgetId = null;
+
+        // מקבל אסימון חדש מ-Cloudflare Turnstile (אסימון חד-פעמי לכל שליחה)
+        function getTurnstileToken() {
+            return new Promise((resolve, reject) => {
+                const start = Date.now();
+                (function waitForApi() {
+                    if (window.turnstile) {
+                        if (turnstileWidgetId !== null) {
+                            try { window.turnstile.remove(turnstileWidgetId); } catch (e) {}
+                        }
+                        turnstileWidgetId = window.turnstile.render('#turnstile-box', {
+                            sitekey: TURNSTILE_SITEKEY,
+                            action: 'quiz11nissan',
+                            callback: (token) => resolve(token),
+                            'error-callback': () => reject(new Error('turnstile-error')),
+                            'expired-callback': () => reject(new Error('turnstile-expired'))
+                        });
+                    } else if (Date.now() - start > 15000) {
+                        reject(new Error('turnstile-not-loaded'));
+                    } else {
+                        setTimeout(waitForApi, 200);
+                    }
+                })();
+            });
+        }
+
         async function sendWebhook(finalScore) {
             const url = "https://n8n.manyautomations.cloud/webhook/5709eae8-18a0-43d9-92b2-8e20a32e26a0";
             webhookStatus.classList.remove('hidden');
+            webhookStatus.innerText = "שומר תוצאה במערכת...";
+            let cfToken;
+            try {
+                cfToken = await getTurnstileToken();
+            } catch (e) {
+                webhookStatus.innerText = "לא הצלחנו לאמת את הדפדפן. רעננו את הדף ונסו שוב.";
+                return false;
+            }
             const perc = Math.round((finalScore / questions.length) * 100);
             try {
                 const response = await fetch(url, {
@@ -396,6 +434,7 @@
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         event: "quiz_completed",
+                        cfToken: cfToken,
                         user: { name: userName, email: userEmail },
                         results: { score: finalScore, total: questions.length, percentage: perc },
                         timestamp: new Date().toISOString()
