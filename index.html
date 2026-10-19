@@ -133,6 +133,7 @@
                 <p id="form-error" class="text-red-500 font-bold hidden mb-2 text-center">מלא את כל הפרטים ואשר קבלת אימייל.</p>
             </div>
             
+            <div id="turnstile-start" class="flex justify-center mb-4"></div>
             <button onclick="validateAndStart()" class="bg-blue-900 hover:bg-blue-800 text-white font-bold py-5 px-10 md:px-16 rounded-2xl text-xl md:text-2xl shadow-lg transition-all transform hover:scale-105">התחל את החידון</button>
             
             <!-- ADMIN INTERFACE -->
@@ -390,6 +391,20 @@
 
         const TURNSTILE_SITEKEY = "0x4AAAAAAFcGaeRLRnEtfVHO";
         let turnstileWidgetId = null;
+        let startToken = null;
+
+        // אימות Cloudflare כבר במסך הפתיחה. Cloudflare מחדש את האסימון לבד אם הוא פג במהלך החידון
+        (function renderStartWidget() {
+            if (!window.turnstile) { setTimeout(renderStartWidget, 200); return; }
+            window.turnstile.render('#turnstile-start', {
+                sitekey: TURNSTILE_SITEKEY,
+                action: 'quiz11nissan',
+                'refresh-expired': 'auto',
+                callback: (token) => { startToken = token; },
+                'expired-callback': () => { startToken = null; },
+                'error-callback': () => { startToken = null; }
+            });
+        })();
 
         // מקבל אסימון חדש מ-Cloudflare Turnstile (אסימון חד-פעמי לכל שליחה)
         function getTurnstileToken() {
@@ -420,9 +435,11 @@
             const url = "https://n8n.manyautomations.cloud/webhook/5709eae8-18a0-43d9-92b2-8e20a32e26a0";
             webhookStatus.classList.remove('hidden');
             webhookStatus.innerText = "שומר תוצאה במערכת...";
-            let cfToken;
+            // משתמשים באסימון ממסך הפתיחה (חד-פעמי). אם אין כזה, מבקשים חדש
+            let cfToken = startToken;
+            startToken = null;
             try {
-                cfToken = await getTurnstileToken();
+                if (!cfToken) cfToken = await getTurnstileToken();
             } catch (e) {
                 webhookStatus.innerText = "לא הצלחנו לאמת את הדפדפן. רעננו את הדף ונסו שוב.";
                 return false;
